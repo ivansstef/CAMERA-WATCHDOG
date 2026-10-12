@@ -77,6 +77,7 @@ image_check:
   blur_threshold: 50.0
   frozen_frame:
     enabled: true
+    night_enabled: false    # v2.1: ніччю (22-06 Kyiv) статичний під'їзд = норма, не алерт
     min_interval_minutes: 5
     similarity_threshold: 0.995
     method: "phash"

@@ -187,6 +187,108 @@ class WatchdogBot:
         self.wd.state_manager.flush()
         await update.message.reply_text(f"⚡ {cam_id} → моніторинг відновлено")
 
+    # ---------- v2.1: ROI motion ----------
+
+    async def cmd_roi(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """
+        /roi <cam_id>            — кадр з сіткою 10% (виміряй зону щитка)
+        /roi <cam_id> x1 y1 x2 y2 [name]  — кадр з червоним прямокутником зони
+        """
+        if not self._authed(update.effective_user.id):
+            return
+        if not ctx.args:
+            await update.message.reply_text(
+                "/roi <cam_id> — кадр з сіткою 10% (шкала 0-100)\n"
+                "/roi <cam_id> x1 y1 x2 y2 [name] — перевірка зони (червоний прямокутник)\n\n"
+                "Приклад: /roi cam70-floor 45 20 65 75 shchitok")
+            return
+        cam_id = ctx.args[0]
+        camera = self.wd.config.get_camera(cam_id)
+        if not camera:
+            await update.message.reply_text(f"❌ нема камери {cam_id}")
+            return
+        msg = await update.message.reply_text("📸 граблю…")
+        loop = asyncio.get_running_loop()
+        frame = await loop.run_in_executor(
+            None, capture_frame, camera, self.wd.username, self.wd.password)
+        await msg.delete()
+        if frame is None:
+            await update.message.reply_text(f"❌ {camera.name}: кадр не отримано")
+            return
+        from modules.roi_motion import draw_region_grid, draw_region_box, parse_region_args, MotionRegion
+        if len(ctx.args) >= 5:
+            region = parse_region_args(ctx.args[1:5], name=ctx.args[5] if len(ctx.args) > 5 else "zone1")
+            if not region:
+                await update.message.reply_text("❌ координати: x1 y1 x2 y2 у % (0-100), x1<x2, y1<y2")
+                return
+            vis = await loop.run_in_executor(None, draw_region_box, frame, region)
+        else:
+            vis = await loop.run_in_executor(None, draw_region_grid, frame, 10)
+        import cv2, tempfile, os
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        cv2.imwrite(tmp.name, vis, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        with open(tmp.name, 'rb') as ph:
+            await update.message.reply_photo(photo=ph, caption=f"📐 {camera.name}")
+        os.unlink(tmp.name)
+
+    async def cmd_motion(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """
+        /motion — статус усіх motion-зон
+        /motion check <cam_id> — примусова перевірка зон камери зараз
+        """
+        if not self._authed(update.effective_user.id):
+            return
+        cams_with_zones = [c for c in self.wd.config.get_enabled_cameras() if c.motion_regions]
+        if not cams_with_zones:
+            await update.message.reply_text(
+                "Моушн-зон нема. Додай у config.yaml:\n\n"
+                "motion:\n  enabled: true\n\n"
+                "  і камері:\n  motion_regions:\n    - name: shchitok\n"
+                "      x1: 45\n      y1: 20\n      x2: 65\n      y2: 75")
+            return
+        if ctx.args and ctx.args[0] == "check":
+            cam_id = ctx.args[1] if len(ctx.args) > 1 else ""
+            camera = next((c for c in cams_with_zones if c.id == cam_id), None)
+            if not camera:
+                await update.message.reply_text(
+                    "❌ камера без зон: " + cam_id + "\nЗони на: " +
+                    ", ".join(c.id for c in cams_with_zones))
+                return
+            msg = await update.message.reply_text("🔄 перевіряю зони…")
+            loop = asyncio.get_running_loop()
+            frame = await loop.run_in_executor(
+                None, capture_frame, camera, self.wd.username, self.wd.password)
+            # скинути cooldown щоб перевірка була миттєвою
+            if frame is not None:
+                triggers = await loop.run_in_executor(
+                    None, self.wd.motion_detector.check_frame, camera.id, frame)
+                if not triggers:
+                    await msg.edit_text(f"✅ {camera.name}: зони спокійні")
+                else:
+                    for t in triggers:
+                        txt = (f"🎯 {camera.name}/{t['region']}: "
+                               f"{t['change_pct']}% (поріг {t['threshold_pct']}%)"
+                               + (" — алерт надіслано" if t['cooldown_ok'] else " — cooldown"))
+                        await msg.edit_text(txt) if t is triggers[0] else await update.message.reply_text(txt)
+                        if t['snapshot']:
+                            import tempfile, os
+                            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                                tmp.write(t['snapshot'])
+                            with open(tmp.name, 'rb') as ph:
+                                await update.message.reply_photo(photo=ph)
+                            os.unlink(tmp.name)
+            else:
+                await msg.edit_text(f"❌ кадр не отримано з {cam_id}")
+            return
+        # статус зон
+        lines = []
+        for c in cams_with_zones:
+            names = ", ".join(r.name for r in c.motion_regions)
+            lines.append(f"• {c.id}: [{names}]")
+        await update.message.reply_text(
+            "🎯 <b>Motion-зони</b>\n\n" + "\n".join(lines) +
+            "\n\n/motion check <cam_id> — перевірка зараз", parse_mode=ParseMode.HTML)
+
     # ---------- inline button handler ----------
 
     async def on_button(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE):
@@ -271,6 +373,8 @@ class WatchdogBot:
         self.app.add_handler(CommandHandler("digest", self.cmd_digest))
         self.app.add_handler(CommandHandler("stolen", self.cmd_stolen))
         self.app.add_handler(CommandHandler("resume", self.cmd_resume))
+        self.app.add_handler(CommandHandler("roi", self.cmd_roi))
+        self.app.add_handler(CommandHandler("motion", self.cmd_motion))
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         await self.app.initialize()
         await self.app.start()

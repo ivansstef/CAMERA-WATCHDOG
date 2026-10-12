@@ -152,14 +152,20 @@ class ImageAnalyzer:
                 f"Blurry image (laplacian_var={lap_var:.2f}, profile={profile_name})",
                 metrics, profile=profile_name)
 
-        # 6. Frozen frame
+        # 6. Frozen frame — v2.1: ніччю вимкнений (ніч на під'їзді з замкненими дверми
+        # = статичність — норма, не поломка). Конфіг: frozen_frame.night_enabled: false
         if self.config.frozen_frame_enabled:
-            frozen_result = self._check_frozen_frame(frame, camera.id, th)
-            if frozen_result:
-                frozen_result.profile = profile_name
-                if frozen_result.metrics:
-                    metrics.update(frozen_result.metrics)
-                return frozen_result
+            night_now = profile_name == "night"
+            night_frozen_allowed = getattr(self.config, 'frozen_frame_night_enabled', True)
+            if not (night_now and not night_frozen_allowed):
+                frozen_result = self._check_frozen_frame(frame, camera.id, th)
+                if frozen_result:
+                    frozen_result.profile = profile_name
+                    if frozen_result.metrics:
+                        metrics.update(frozen_result.metrics)
+                    return frozen_result
+            else:
+                logger.debug(f"frozen_frame skipped ({profile_name} profile, night_enabled=false)")
 
         return ImageAnalysisResult(ImageIssue.NONE, f"Frame OK ({profile_name})", metrics, profile=profile_name)
 
@@ -187,6 +193,12 @@ class ImageAnalyzer:
 
         gray1 = gray1.astype(np.float32) / 255.0
         gray2 = gray2.astype(np.float32) / 255.0
+
+        # v2.1: суцільні (constant) кадри — corrcoef дає nan → лікуємо:
+        # два рівні кадри з однаковим значенням = 1.0 (ідентичні), з різним = 0.0
+        std1, std2 = float(np.std(gray1)), float(np.std(gray2))
+        if std1 < 1e-6 and std2 < 1e-6:
+            return 1.0 if abs(float(np.mean(gray1)) - float(np.mean(gray2))) < 0.02 else 0.0
 
         correlation = np.corrcoef(gray1.flatten(), gray2.flatten())[0, 1]
         return float(correlation) if not np.isnan(correlation) else 0.0

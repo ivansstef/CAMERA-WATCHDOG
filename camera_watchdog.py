@@ -58,6 +58,10 @@ class CameraWatchdog:
         self.image_analyzer = ImageAnalyzer(self.config.image_check)
         self.notifier = TelegramNotifier(self.config.telegram, alert_store=self.store)
         self.username, self.password = get_camera_credentials()
+        # v2.1: ROI motion detector
+        from modules.roi_motion import ROIMotionDetector
+        self.motion_detector = ROIMotionDetector(self.config.motion)
+        self.bot = None   # v2: WatchdogBot (для theft-prompt)
 
         self.logger.info(f"Camera Watchdog v2 initialized with {len(self.config.cameras)} cameras")
         for cam in self.config.get_enabled_cameras():
@@ -120,9 +124,28 @@ class CameraWatchdog:
         # 5. Image analysis (if enabled and interval passed)
         await self._check_image_quality(camera, status, frame)
 
+        # v2.1: ROI motion (тригер на зміну в заданій зоні)
+        await self._check_roi_motion(camera, frame)
+
         # 6. Handle recovery
         self._handle_recovery(camera, status)
         self.state_manager.flush()
+
+    async def _check_roi_motion(self, camera: CameraConfig, frame):
+        """v2.1: перевірка motion-зон камери."""
+        if not camera.motion_regions or not getattr(self, 'motion_detector', None):
+            return
+        triggers = await asyncio.to_thread(
+            self.motion_detector.check_frame, camera.id, frame)
+        for t in triggers:
+            if not t['cooldown_ok']:
+                continue
+            self.logger.info(
+                f"ROI MOTION {camera.id}/{t['region']}: {t['change_pct']}% "
+                f"(поріг {t['threshold_pct']}%)")
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, self.notifier.send_motion_alert, camera, t)
 
     async def _check_image_quality(self, camera: CameraConfig, status: CameraStatus, frame):
         """Check image quality at configured interval."""

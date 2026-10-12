@@ -26,6 +26,7 @@ class CameraConfig:
     check_interval_seconds: int = 30
     consecutive_failures_threshold: int = 3
     fallback_paths: list[str] = field(default_factory=list)  # пробінг якщо основний 404
+    motion_regions: list = field(default_factory=list)       # v2.1: MotionRegion[]
 
     @property
     def rtsp_url(self) -> str:
@@ -50,6 +51,7 @@ class ImageCheckConfig:
     blocked_threshold: float = 0.015
     blur_threshold: float = 50.0
     frozen_frame_enabled: bool = True
+    frozen_frame_night_enabled: bool = True   # v2.1: ніччю замкнений під'їзд = статичність норма
     frozen_frame_min_interval_minutes: int = 5
     frozen_frame_similarity_threshold: float = 0.995
     frozen_frame_method: str = "phash"
@@ -88,6 +90,17 @@ class MetricsConfig:
 
 
 @dataclass
+class MotionConfig:
+    """v2.1: ROI motion detection (тригер на зміну в заданій зоні кадру)."""
+    enabled: bool = False
+    pixel_threshold: int = 25
+    change_percent: float = 2.0
+    cooldown_minutes: float = 2.0
+    reference_refresh_minutes: float = 30
+    min_region_area: int = 400
+
+
+@dataclass
 class Config:
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
     check: CheckConfig = field(default_factory=CheckConfig)
@@ -96,6 +109,7 @@ class Config:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
+    motion: MotionConfig = field(default_factory=MotionConfig)   # v2.1
     state_db: str = "data/state.sqlite3"     # v2: persist
     theft_prompt_after_minutes: int = 30     # v2: камера offline N хв → "вкрали?" prompt
 
@@ -181,6 +195,7 @@ def load_config(config_path: str | Path | None = None) -> Config:
         blocked_threshold=img_data.get('blocked_threshold', 0.015),
         blur_threshold=img_data.get('blur_threshold', 50.0),
         frozen_frame_enabled=frozen_data.get('enabled', True),
+        frozen_frame_night_enabled=frozen_data.get('night_enabled', True),
         frozen_frame_min_interval_minutes=frozen_data.get('min_interval_minutes', 5),
         frozen_frame_similarity_threshold=frozen_data.get('similarity_threshold', 0.995),
         frozen_frame_method=frozen_data.get('method', 'phash'),
@@ -222,6 +237,32 @@ def load_config(config_path: str | Path | None = None) -> Config:
         enabled=m_data.get('enabled', False),
         port=int(m_data.get('port', 8000))
     )
+
+    # Load motion config (v2.1)
+    mo_data = raw_config.get('motion', {})
+    config.motion = MotionConfig(
+        enabled=mo_data.get('enabled', False),
+        pixel_threshold=int(mo_data.get('pixel_threshold', 25)),
+        change_percent=float(mo_data.get('change_percent', 2.0)),
+        cooldown_minutes=float(mo_data.get('cooldown_minutes', 2.0)),
+        reference_refresh_minutes=float(mo_data.get('reference_refresh_minutes', 30)),
+        min_region_area=int(mo_data.get('min_region_area', 400))
+    )
+
+    # v2.1: per-camera motion_regions (в % кадру)
+    for cam_data in raw_config.get('cameras', []):
+        regions_raw = cam_data.get('motion_regions', [])
+        if regions_raw:
+            from modules.roi_motion import MotionRegion
+            config.cameras[cam_data['id']].__dict__  # ensure object exists
+            config.cameras[cam_data['id']].motion_regions = [
+                MotionRegion(
+                    name=r.get('name', 'zone1'),
+                    x1=float(r['x1']), y1=float(r['y1']),
+                    x2=float(r['x2']), y2=float(r['y2']),
+                    change_percent=r.get('change_percent'),
+                ) for r in regions_raw
+            ]
 
     # Load secrets: local .env спершу (розробка), потім deployment env-file
     for env_candidate in (base_dir / ".env", Path("/opt/camera-watchdog/.env")):

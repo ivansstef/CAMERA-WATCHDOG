@@ -40,6 +40,34 @@ class TelegramNotifier:
             for key, (ts, issue, cnt) in alert_store.load_alert_states().items():
                 self.alert_states[key] = AlertState(last_alert_time=ts, last_issue=issue, alert_count=cnt)
 
+    def send_motion_alert(self, camera, trigger: dict) -> bool:
+        """v2.1: ROI motion alert з підписаним снапшотом (box на зоні)."""
+        if not self._can_send_alert(camera.id, f"motion_{trigger['region']}"):
+            return False
+        text = (
+            "📹 <b>CAMERA WATCHDOG — РУХ</b>\n\n"
+            f"🎯 <b>{camera.name}</b> ({camera.ip})\n"
+            f"Зона: <b>{trigger['region']}</b>\n"
+            f"Змінено: {trigger['change_pct']}% (поріг {trigger['threshold_pct']}%)\n"
+            f"Час: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        photo = None
+        if trigger.get('snapshot'):
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                tmp.write(trigger['snapshot'])
+                photo = tmp.name
+        success = self._send_message(text, photo_path=photo)
+        if photo:
+            import os
+            try:
+                os.unlink(photo)
+            except OSError:
+                pass
+        if success:
+            self._record_alert(camera.id, f"motion_{trigger['region']}")
+        return success
+
     def _get_state_key(self, camera_id: str, issue_type: str) -> str:
         return f"{camera_id}:{issue_type}"
 

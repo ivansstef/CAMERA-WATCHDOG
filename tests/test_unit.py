@@ -262,3 +262,54 @@ class TestTheftFlow:
         st.theft_prompted = True
         # повторна — не питає (state уже True)
         assert st.theft_prompted is True
+
+# ---------- frozen_frame night_enabled (v2.1) ----------
+
+class TestFrozenNight:
+    def _cfg(self, **kw):
+        from modules.config_loader import ImageCheckConfig
+        base = dict(frozen_frame_enabled=True, frozen_frame_night_enabled=False,
+                    frozen_frame_min_interval_minutes=0,  # порівнюємо одразу (для тесту)
+                    frozen_frame_similarity_threshold=0.5,
+                    frozen_frame_method='phash')
+        base.update(kw)
+        return ImageCheckConfig(**base)
+
+    def _force_night(self, analyzer):
+        analyzer._active_profile_orig = analyzer._active_profile
+        analyzer._active_profile = lambda: ("night", {
+            'black_threshold': 0.02, 'white_threshold': 0.98,
+            'contrast_threshold': 0.03, 'blocked_threshold': 0.001,
+            'blur_threshold': 50.0, 'frozen_frame_similarity_threshold': 0.5})
+
+    def test_night_frozen_skipped_when_disabled(self):
+        cfg = self._cfg()
+        a = ImageAnalyzer(cfg)
+        self._force_night(a)
+        cam = CameraConfig(id='fn', name='FN', ip='1.1.1.1')
+        rng = np.random.default_rng(7)
+        f1 = rng.normal(128, 60, (240, 320, 3)).clip(0,255).astype(np.uint8)
+        r1 = a.analyze_frame(f1, cam)
+        r2 = a.analyze_frame(f1, cam)   # ідентичний кадр — замкнений під'їзд
+        assert r2.issue != ImageIssue.FROZEN, "ніччю з night_enabled=false НЕ має триггерити frozen"
+
+    def test_day_frozen_still_fires(self):
+        cfg = self._cfg()
+        a = ImageAnalyzer(cfg)
+        cam = CameraConfig(id='fd', name='FD', ip='1.1.1.1')
+        rng = np.random.default_rng(7)
+        f1 = rng.normal(128, 60, (240, 320, 3)).clip(0,255).astype(np.uint8)
+        a.analyze_frame(f1, cam)
+        r2 = a.analyze_frame(f1, cam)   # день: той самий кадр двічі → frozen
+        assert r2.issue == ImageIssue.FROZEN, "вдень frozen працює як завжди"
+
+    def test_night_frozen_fires_if_enabled(self):
+        cfg = self._cfg(frozen_frame_night_enabled=True)
+        a = ImageAnalyzer(cfg)
+        self._force_night(a)
+        cam = CameraConfig(id='fe', name='FE', ip='1.1.1.1')
+        rng = np.random.default_rng(7)
+        f1 = rng.normal(128, 60, (240, 320, 3)).clip(0,255).astype(np.uint8)
+        a.analyze_frame(f1, cam)
+        r2 = a.analyze_frame(f1, cam)
+        assert r2.issue == ImageIssue.FROZEN, "з night_enabled=true нічна статичність = алерт (old behavior)"
