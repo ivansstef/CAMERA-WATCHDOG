@@ -2,17 +2,16 @@
 Camera Watchdog - Image Analysis
 Detects black/white frames, low contrast, blocked lens, blur, frozen frames.
 """
-import cv2
-import numpy as np
-import hashlib
-import time
 import logging
-from typing import Optional, Tuple, Dict, Any
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from modules.config_loader import ImageCheckConfig, CameraConfig
+import cv2
+import numpy as np
+
+from modules.config_loader import CameraConfig, ImageCheckConfig
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +30,8 @@ class ImageIssue(Enum):
 class ImageAnalysisResult:
     issue: ImageIssue = ImageIssue.NONE
     details: str = ""
-    metrics: Dict[str, float] = None
-    frame: Optional[np.ndarray] = None
+    metrics: dict[str, float] = None
+    frame: np.ndarray | None = None
 
     def __post_init__(self):
         if self.metrics is None:
@@ -42,8 +41,8 @@ class ImageAnalysisResult:
 class ImageAnalyzer:
     def __init__(self, config: ImageCheckConfig):
         self.config = config
-        self.last_frames: Dict[str, Tuple[np.ndarray, float]] = {}  # camera_id -> (frame_hash, timestamp)
-        self.last_phashes: Dict[str, Tuple[str, float]] = {}  # camera_id -> (phash, timestamp)
+        self.last_frames: dict[str, tuple[np.ndarray, float]] = {}  # camera_id -> (frame_hash, timestamp)
+        self.last_phashes: dict[str, tuple[str, float]] = {}  # camera_id -> (phash, timestamp)
 
     def analyze_frame(self, frame: np.ndarray, camera: CameraConfig) -> ImageAnalysisResult:
         """Analyze a single frame for issues."""
@@ -164,7 +163,7 @@ class ImageAnalyzer:
         correlation = np.corrcoef(gray1.flatten(), gray2.flatten())[0, 1]
         return float(correlation) if not np.isnan(correlation) else 0.0
 
-    def _check_frozen_frame(self, frame: np.ndarray, camera_id: str) -> Optional[ImageAnalysisResult]:
+    def _check_frozen_frame(self, frame: np.ndarray, camera_id: str) -> ImageAnalysisResult | None:
         """Check if frame is frozen (same as previous frames)."""
         now = time.time()
         min_interval = self.config.frozen_frame_min_interval_minutes * 60
@@ -205,7 +204,7 @@ class ImageAnalyzer:
         return None
 
 
-def save_event_frame(frame: np.ndarray, camera: CameraConfig, issue: ImageIssue, events_path: str) -> Optional[str]:
+def save_event_frame(frame: np.ndarray, camera: CameraConfig, issue: ImageIssue, events_path: str) -> str | None:
     """Save event frame to disk with timestamped filename."""
     try:
         events_dir = Path(events_path)

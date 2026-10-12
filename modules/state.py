@@ -2,10 +2,9 @@
 Camera Watchdog - State Management
 Tracks camera state, failures, and alerts.
 """
-import time
 import logging
-from typing import Optional, Dict
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 from enum import Enum
 
 from modules.config_loader import CameraConfig
@@ -34,8 +33,8 @@ class CameraStatus:
     offline_since: float = 0
     last_ping_latency: float = 0
     last_rtsp_latency: float = 0
-    last_frame: Optional[bytes] = None  # Store last successful frame for frozen detection
-    last_image_issue: Optional[ImageIssue] = None
+    last_frame: bytes | None = None  # Store last successful frame for frozen detection
+    last_image_issue: ImageIssue | None = None
     last_image_alert_time: float = 0
     total_downtime_seconds: float = 0
     total_uptime_seconds: float = 0
@@ -108,16 +107,16 @@ class CameraStatus:
 class StateManager:
     """Manages state for all cameras."""
 
-    def __init__(self, cameras: Dict[str, CameraConfig]):
+    def __init__(self, cameras: dict[str, CameraConfig]):
         self.cameras = cameras
-        self.status: Dict[str, CameraStatus] = {}
+        self.status: dict[str, CameraStatus] = {}
         for cam_id in cameras:
             self.status[cam_id] = CameraStatus(camera_id=cam_id)
 
-    def get_status(self, camera_id: str) -> Optional[CameraStatus]:
+    def get_status(self, camera_id: str) -> CameraStatus | None:
         return self.status.get(camera_id)
 
-    def get_all_statuses(self) -> Dict[str, CameraStatus]:
+    def get_all_statuses(self) -> dict[str, CameraStatus]:
         return self.status
 
     def get_online_cameras(self) -> list[str]:

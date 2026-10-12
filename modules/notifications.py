@@ -2,13 +2,12 @@
 Camera Watchdog - Telegram Notifications
 Handles sending alerts to Telegram with cooldown and anti-spam.
 """
-import time
 import logging
-import asyncio
-import requests
-from typing import Optional, Dict
+import time
 from dataclasses import dataclass
 from pathlib import Path
+
+import requests
 
 from modules.config_loader import CameraConfig, TelegramConfig
 from modules.image_check import ImageIssue
@@ -27,7 +26,7 @@ class AlertState:
 class TelegramNotifier:
     def __init__(self, config: TelegramConfig):
         self.config = config
-        self.alert_states: Dict[str, AlertState] = {}  # key: f"{camera_id}:{issue_type}"
+        self.alert_states: dict[str, AlertState] = {}  # key: f"{camera_id}:{issue_type}"
         self.enabled = config.enabled and bool(config.bot_token) and bool(config.chat_id)
 
         if not self.enabled:
@@ -67,7 +66,7 @@ class TelegramNotifier:
         state.alert_count += 1
         self.alert_states[key] = state
 
-    def _send_message(self, text: str, photo_path: Optional[str] = None) -> bool:
+    def _send_message(self, text: str, photo_path: str | None = None) -> bool:
         """Send message to Telegram, optionally with photo."""
         if not self.enabled:
             return False
@@ -154,7 +153,7 @@ class TelegramNotifier:
         return success
 
     def send_image_issue_alert(self, camera: CameraConfig, issue: ImageIssue,
-                               details: str, snapshot_path: Optional[str] = None) -> bool:
+                               details: str, snapshot_path: str | None = None) -> bool:
         """Send image quality issue alert."""
         issue_names = {
             ImageIssue.BLACK: "Чорний кадр",

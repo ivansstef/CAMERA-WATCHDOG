@@ -2,11 +2,10 @@
 Camera Watchdog - Camera Connection Checks
 Handles ping, RTSP connection, and frame capture.
 """
+import logging
 import socket
 import subprocess
 import time
-import logging
-from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
@@ -38,7 +37,7 @@ class PingResult:
 class RTSPResult:
     success: bool
     result_type: CheckResult
-    frame: Optional[np.ndarray] = None
+    frame: np.ndarray | None = None
     error: str = ""
     latency_ms: float = 0.0
 
@@ -80,7 +79,7 @@ def ping_camera(ip: str, timeout: float = 2.0) -> PingResult:
             sock = socket.create_connection((ip, port), timeout=timeout)
             sock.close()
             return PingResult(True, (time.time() - sock_start) * 1000)
-        except socket.timeout:
+        except TimeoutError:
             return PingResult(False, 0, "timeout")
         except ConnectionRefusedError:
             return PingResult(False, 0, "connection_refused")
@@ -135,7 +134,7 @@ def check_rtsp_connection(camera: CameraConfig, username: str = None, password: 
         return RTSPResult(False, CheckResult.ERROR, error=str(e), latency_ms=(time.time() - start) * 1000)
 
 
-def capture_frame(camera: CameraConfig, username: str = None, password: str = None) -> Optional[np.ndarray]:
+def capture_frame(camera: CameraConfig, username: str = None, password: str = None) -> np.ndarray | None:
     """Capture a single frame from RTSP stream using ffmpeg."""
     rtsp_url = build_rtsp_url(camera, username, password)
 
@@ -164,7 +163,7 @@ def capture_frame(camera: CameraConfig, username: str = None, password: str = No
     return None
 
 
-def get_stream_info(camera: CameraConfig, username: str = None, password: str = None) -> Optional[dict]:
+def get_stream_info(camera: CameraConfig, username: str = None, password: str = None) -> dict | None:
     """Get stream information (resolution, codec, fps)."""
     rtsp_url = build_rtsp_url(camera, username, password)
 
@@ -182,7 +181,7 @@ def get_stream_info(camera: CameraConfig, username: str = None, password: str = 
         if result.returncode == 0:
             import json
             data = json.loads(result.stdout.decode())
-            if 'streams' in data and data['streams']:
+            if data.get('streams'):
                 stream = data['streams'][0]
                 # Parse frame rate
                 fps_str = stream.get('r_frame_rate', '0/1')

@@ -3,24 +3,32 @@
 Camera Watchdog - Main Service
 Monitors IP cameras for availability and image quality.
 """
-import sys
-import os
-import time
-import signal
 import logging
+import signal
+import sys
 import threading
+import time
 from pathlib import Path
-from typing import Dict, Optional
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.config_loader import load_config, get_camera_credentials, CameraConfig
-from modules.camera_check import ping_camera, check_rtsp_connection, capture_frame, get_stream_info
-from modules.image_check import ImageAnalyzer, save_event_frame, cleanup_old_events, ImageIssue
+from modules.camera_check import (
+    capture_frame,
+    check_rtsp_connection,
+    ping_camera,
+)
+from modules.config_loader import CameraConfig, get_camera_credentials, load_config
+from modules.image_check import (
+    ImageAnalyzer,
+    ImageIssue,
+    cleanup_old_events,
+    save_event_frame,
+)
 from modules.notifications import TelegramNotifier
-from modules.state import StateManager, CameraState, CameraStatus
+from modules.state import CameraState, CameraStatus, StateManager
+
 
 # Setup logging
 def setup_logging(config):
@@ -38,7 +46,7 @@ class CameraWatchdog:
         self.config = load_config(config_path)
         self.logger = setup_logging(self.config)
         self.running = False
-        self.threads: Dict[str, threading.Thread] = {}
+        self.threads: dict[str, threading.Thread] = {}
 
         # Initialize components
         self.state_manager = StateManager(self.config.cameras)
@@ -47,7 +55,7 @@ class CameraWatchdog:
         self.username, self.password = get_camera_credentials()
 
         # Cleanup thread
-        self.cleanup_thread: Optional[threading.Thread] = None
+        self.cleanup_thread: threading.Thread | None = None
 
         self.logger.info(f"Camera Watchdog initialized with {len(self.config.cameras)} cameras")
         for cam in self.config.get_enabled_cameras():

@@ -1,10 +1,10 @@
 # Camera Watchdog Configuration
-# Place: /opt/osbb/agents/monitoring/camera-watchdog/config.yaml
+# Place: /opt/camera-watchdog/config.yaml
 
 cameras:
   - id: entrance1-floor6
     name: "1 під'їзд 6 поверх"
-    ip: "192.168.31.201"
+    ip: "192.168.0.101"
     enabled: true
     rtsp:
       # URL template: rtsp://{username}:{password}@{ip}{path}
@@ -40,7 +40,7 @@ image_check:
 
 # Event storage
 events:
-  path: "/opt/osbb/data/camera-watchdog/events"
+  path: "/opt/camera-watchdog/data/events"
   retention_days: 30
   cleanup_interval_hours: 24
 
@@ -56,4 +56,4 @@ logging:
   level: "INFO"
   # journald or file
   handler: "journald"
-  file_path: "/opt/osbb/agents/monitoring/camera-watchdog/logs/camera-watchdog.log"
+  file_path: "/opt/camera-watchdog/logs/camera-watchdog.log"

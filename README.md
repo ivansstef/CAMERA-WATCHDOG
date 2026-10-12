@@ -1,15 +1,30 @@
 # Camera Watchdog
 
-Сервіс моніторингу IP-камер ОСББ. Перевіряє доступність камер по IP, RTSP потоки, якість зображення та надсилає сповіщення в Telegram.
+Сервіс моніторингу IP-камер. Перевіряє доступність камер по IP, RTSP-потоки, якість зображення та надсилає сповіщення в Telegram при зміні стану.
+
+## Features
+
+- **Доступність**: ping + TCP-перевірка RTSP порту (554)
+- **RTSP**: захват кадру з основного/додаткового потоку
+- **Аналіз зображення** (OpenCV):
+  - Чорний кадр (mean < 0.02)
+  - Білий кадр (mean > 0.98)
+  - Низький контраст (std < 0.03)
+  - Заблокований об'єктив (локальна дисперсія < 0.015)
+  - Розмите зображення (Laplacian variance < 50)
+  - Завислий кадр (perceptual hash similarity > 0.995, phash/SSIM/diff)
+- **Telegram сповіщення**: тільки на зміні стану + кулдаун 30 хв (налаштовується)
+- **Snapshot** в сповіщеннях при проблемах зображення
+- **State persistence**: переживає рестарт без хибних тривог
 
 ## Структура проєкту
 
 ```
-/opt/osbb/agents/monitoring/camera-watchdog/
+camera-watchdog/
 ├── camera_watchdog.py          # Головний сервіс
-├── config.yaml                 # Конфігурація камер та порогів
+├── config.yaml                 # Конфігурація камер та порогів (без секретів)
 ├── requirements.txt            # Python залежності
-├── venv/                       # Віртуальне оточення
+├── .env.example                # Шаблон секретів (скопіюй в .env)
 ├── modules/
 │   ├── config_loader.py        # Завантаження конфігу та секретів
 │   ├── camera_check.py         # Ping, RTSP, захват кадрів
@@ -18,123 +33,125 @@
 │   └── state.py                # Управління станом камер
 ```
 
+## Встановлення
+
+```bash
+git clone git@github.com:ivansstef/CAMERA-WATCHDOG.git
+cd CAMERA-WATCHDOG
+python3 -m venv venv
+./venv/bin/pip install -r requirements.txt
+```
+
 ## Конфігурація
 
-### config.yaml
-Основні параметри:
-- `cameras` - список камер з ID, ім'ям, IP
-- `check.interval_seconds` - інтервал перевірки (за замовчуванням 30с)
-- `check.consecutive_failures_threshold` - кількість невдач для OFFLINE (3)
-- `image_check` - пороги для аналізу зображення
-- `events.path` - папка для збереження snapshot при аваріях
-- `events.retention_days` - зберігання подій (30 днів)
-- `telegram.cooldown_minutes` - кулдаун між сповіщеннями (30 хв)
+### 1. Секрети (`.env` — НЕ комітиться)
 
-### Секрети
-Файл: `/opt/osbb/secrets/camera-watchdog.env` (chmod 600)
 ```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+```bash
+# .env
 CAMERA_USERNAME=admin
-CAMERA_PASSWORD=hikSK555
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_CHAT_ID=428021663
+CAMERA_PASSWORD=<пароль камер>
+TELEGRAM_BOT_TOKEN=<токен бота з @BotFather>
+TELEGRAM_CHAT_ID=<chat id>
 ```
 
-## Запуск
-
-### Ручний запуск (тест)
-```bash
-cd /opt/osbb/agents/monitoring/camera-watchdog
-./venv/bin/python camera_watchdog.py --test
-```
-
-### Тест Telegram
-```bash
-./venv/bin/python camera_watchdog.py --test-telegram
-```
-
-### Як systemd сервіс
-```bash
-sudo systemctl start camera-watchdog
-sudo systemctl enable camera-watchdog
-sudo systemctl status camera-watchdog
-```
-
-## Логи
-```bash
-# Журнали systemd
-sudo journalctl -u camera-watchdog -f
-
-# Останні 100 рядків
-sudo journalctl -u camera-watchdog -n 100
-```
-
-## Додавання нової камери
-
-Відредагуйте `/opt/osbb/agents/monitoring/camera-watchdog/config.yaml`:
+### 2. Камери (`config.yaml`)
 
 ```yaml
 cameras:
   - id: entrance1-floor6
     name: "1 під'їзд 6 поверх"
-    ip: "192.168.31.201"
+    ip: "192.168.0.101"          # IP камери у своїй мережі
     enabled: true
     rtsp:
-      path: "/h264/ch1/main/av_stream"
-
-  - id: entrance1-floor5
-    name: "1 під'їзд 5 поверх"
-    ip: "192.168.31.xxx"
-    enabled: true
-    rtsp:
-      path: "/h264/ch1/main/av_stream"
+      path: "/h264/ch1/main/av_stream"   # Hikvision-стиль RTSP path
+      transport: "tcp"
+      timeout: 10
 ```
 
-Потім перезапустіть сервіс:
+Основні параметри:
+- `check.interval_seconds` - інтервал перевірки (30с)
+- `check.consecutive_failures_threshold` - невдач підряд для OFFLINE (3)
+- `image_check` - пороги аналізу зображення (тюняться під камеру)
+- `events.retention_days` - зберігання snapshot подій (30 днів)
+- `telegram.cooldown_minutes` - кулдаун між сповіщеннями (30 хв)
+
+## Запуск
+
+### Ручний запуск (тест)
+
 ```bash
-sudo systemctl restart camera-watchdog
-```
-
-## Команди
-
-```bash
-# Статус
-sudo systemctl status camera-watchdog
-
-# Логи в реальному часі
-sudo journalctl -u camera-watchdog -f
-
-# Перезапуск
-sudo systemctl restart camera-watchdog
-
-# Зупинка
-sudo systemctl stop camera-watchdog
-
-# Перевірка конфігурації
 ./venv/bin/python camera_watchdog.py --test
+```
 
-# Тест Telegram
+### Тест Telegram
+
+```bash
 ./venv/bin/python camera_watchdog.py --test-telegram
 ```
 
-## RTSP URL для Seven камер
+### systemd сервіс
 
-Основний потік (main): `rtsp://admin:password@IP/h264/ch1/main/av_stream`
-Додатковий потік (sub): `rtsp://admin:password@IP/h264/ch1/sub/av_stream`
+```ini
+# /etc/systemd/system/camera-watchdog.service
+[Unit]
+Description=Camera Watchdog - IP camera monitoring
+After=network-online.target
+Wants=network-online.target
 
-Порти камери:
-- 80 - веб-інтерфейс
-- 443 - HTTPS
-- 554 - RTSP
-- 8000 - альтернативний веб/ONVIF
+[Service]
+Type=simple
+User=camera
+WorkingDirectory=/opt/camera-watchdog
+EnvironmentFile=/opt/camera-watchdog/.env
+ExecStart=/opt/camera-watchdog/venv/bin/python camera_watchdog.py
+Restart=on-failure
+RestartSec=30
 
-## Аналіз зображення
+[Install]
+WantedBy=multi-user.target
+```
 
-Система виявляє:
-- **Чорний кадр** - mean < 0.02
-- **Білий кадр** - mean > 0.98
-- **Низький контраст** - std < 0.03
-- **Заблокований об'єктив** - локальна дисперсія < 0.015
-- **Розмите зображення** - Laplacian variance < 50
-- **Зависний кадр** - perceptual hash similarity > 0.995
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now camera-watchdog
+```
 
-Сповіщення надсилаються лише при зміні стану та з кулдауном 30 хв.
+## Логи
+
+```bash
+sudo journalctl -u camera-watchdog -f        # реальний час
+sudo journalctl -u camera-watchdog -n 100    # останні 100
+```
+
+## Додавання камери
+
+Додай блок у `config.yaml` → `cameras:` і перезапусти:
+
+```bash
+sudo systemctl restart camera-watchdog
+```
+
+Кожна камера підтримує override глобальних інтервалів (`check_interval_seconds`, `consecutive_failures_threshold`).
+
+## RTSP URL шаблон
+
+```
+rtsp://{username}:{password}@{ip}{path}
+```
+
+- Основний потік: `/h264/ch1/main/av_stream` (Hikvision-стиль)
+- Додатковий потік: `/h264/ch1/sub/av_stream`
+- Порти камери: 80 (web), 443, 554 (RTSP), 8000 (ONVIF)
+
+## Privacy / Security
+
+`config.yaml` у репо — робочий приклад. Реальні IP камер, паролі, токен Telegram бота і chat ID живуть у некомітьованому `.env` (див. `.env.example`).
+
+## Ліцензія
+
+MIT

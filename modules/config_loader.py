@@ -3,10 +3,10 @@ Camera Watchdog - Configuration Loader
 Loads config.yaml and secrets from environment file.
 """
 import os
-import yaml
-from pathlib import Path
-from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
 
 
 @dataclass
@@ -74,14 +74,14 @@ class LoggingConfig:
 
 @dataclass
 class Config:
-    cameras: Dict[str, CameraConfig] = field(default_factory=dict)
+    cameras: dict[str, CameraConfig] = field(default_factory=dict)
     check: CheckConfig = field(default_factory=CheckConfig)
     image_check: ImageCheckConfig = field(default_factory=ImageCheckConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
-    def get_camera(self, camera_id: str) -> Optional[CameraConfig]:
+    def get_camera(self, camera_id: str) -> CameraConfig | None:
         return self.cameras.get(camera_id)
 
     def get_enabled_cameras(self) -> list[CameraConfig]:
