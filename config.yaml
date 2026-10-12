@@ -2,22 +2,38 @@
 # Copy to your deployment path, adjust IPs/paths. No secrets here — .env only.
 
 cameras:
-  - id: entrance1-floor6
-    name: "1 під'їзд 6 поверх"
-    ip: "192.168.0.101"
+  - id: 64-reestrator
+    name: "Реєстратор (NVR)"
+    ip: "192.168.31.64"
     enabled: true
+    # NVR сам по собі не RTSP — для нього хватить ping + порт 80/554
     rtsp:
-      scheme: rtsp            # rtsp | rtsps (TLS — тоді port змінюй на 322)
+      scheme: rtsp
       port: 554
-      path: "/h264/ch1/main/av_stream"      # Hikvision; Dahua: /cam/realmonitor?channel=1&subtype=0
-      transport: "tcp"                       # tcp | udp
+      path: "/Streaming/Channels/101"   # Hikvision NVR: канали 101/201 = camera1/2 main
+      transport: "tcp"
       timeout: 10
-      auth_type: "auto"                      # basic | digest | auto
-      # Авто-пробінг vendor-шляхів якщо основний 404 (список дефолтний):
-      # fallback_paths: ["/stream1", "/cam/realmonitor?channel=1&subtype=0"]
-    # Optional: override global check intervals for this camera
-    # check_interval_seconds: 30
-    # consecutive_failures_threshold: 3
+
+  # 🔴 ВКРАДЕНІ (2026): за замовчуванням вимкнені — вмикай /resume після відновлення
+  # камера з enabled: false стартує неактивною і не лається
+  - id: 201-street
+    name: "Вулична 201 (вкрадена)"
+    ip: "192.168.31.201"
+    enabled: false
+    rtsp: { scheme: rtsp, port: 554, path: "/h264/ch1/main/av_stream", transport: "tcp", timeout: 10 }
+
+  - id: 202-street
+    name: "Вулична 202 (вкрадена)"
+    ip: "192.168.31.202"
+    enabled: false
+    rtsp: { scheme: rtsp, port: 554, path: "/h264/ch1/main/av_stream", transport: "tcp", timeout: 10 }
+
+  # Діапазон 65-79 — додай тільки ті, що реально живі:
+  # - id: 65-kitchen
+  #   name: "Кухня 65"
+  #   ip: "192.168.31.65"
+  #   enabled: true
+  #   rtsp: { scheme: rtsp, port: 554, path: "/h264/ch1/main/av_stream", transport: "tcp", timeout: 10 }
 
 # Global check intervals
 check:
