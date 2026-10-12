@@ -1,5 +1,5 @@
 # Camera Watchdog Configuration
-# Place: /opt/camera-watchdog/config.yaml
+# Copy to your deployment path, adjust IPs/paths. No secrets here — .env only.
 
 cameras:
   - id: entrance1-floor6
