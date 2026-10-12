@@ -1,4 +1,4 @@
-# Camera Watchdog Configuration
+# Camera Watchdog v2 Configuration
 # Copy to your deployment path, adjust IPs/paths. No secrets here — .env only.
 
 cameras:
@@ -7,11 +7,14 @@ cameras:
     ip: "192.168.0.101"
     enabled: true
     rtsp:
-      # URL template: rtsp://{username}:{password}@{ip}{path}
-      # Credentials loaded from secrets file
-      path: "/h264/ch1/main/av_stream"
-      transport: "tcp"
+      scheme: rtsp            # rtsp | rtsps (TLS — тоді port змінюй на 322)
+      port: 554
+      path: "/h264/ch1/main/av_stream"      # Hikvision; Dahua: /cam/realmonitor?channel=1&subtype=0
+      transport: "tcp"                       # tcp | udp
       timeout: 10
+      auth_type: "auto"                      # basic | digest | auto
+      # Авто-пробінг vendor-шляхів якщо основний 404 (список дефолтний):
+      # fallback_paths: ["/stream1", "/cam/realmonitor?channel=1&subtype=0"]
     # Optional: override global check intervals for this camera
     # check_interval_seconds: 30
     # consecutive_failures_threshold: 3
@@ -20,6 +23,9 @@ cameras:
 check:
   interval_seconds: 30
   consecutive_failures_threshold: 3
+
+# v2: камера офлайн N хвилин → бот питає "вкрали?" (кнопки STOLEN/RESUME)
+theft_prompt_after_minutes: 30
 
 # Image analysis configuration
 image_check:
@@ -30,30 +36,48 @@ image_check:
   black_threshold: 0.02      # Mean pixel value below this = black frame
   white_threshold: 0.98      # Mean pixel value above this = white frame
   contrast_threshold: 0.03   # Standard deviation below this = low contrast
-  blocked_threshold: 0.005   # Very low variance = blocked lens (more conservative)
+  blocked_threshold: 0.005   # Very low variance = blocked lens
   blur_threshold: 50.0       # Laplacian variance below this = blurry
   frozen_frame:
     enabled: true
-    min_interval_minutes: 5  # Minimum time between frame comparisons
-    similarity_threshold: 0.995  # SSIM above this = frozen frame
+    min_interval_minutes: 5
+    similarity_threshold: 0.995
     method: "phash"          # phash, ssim, diff
+  # v2: нічний профіль порогів (нічні сцени темніші — інакше фальшивий black_frame)
+  # night_profile:
+  #   start_hour: 22
+  #   end_hour: 6
+  #   overrides:
+  #     black_threshold: 0.005
+  #     blur_threshold: 30
 
-# Event storage
+# Event storage (відносний шлях = від теки config.yaml)
 events:
-  path: "/opt/camera-watchdog/data/events"
+  path: "data/events"
   retention_days: 30
   cleanup_interval_hours: 24
 
-# Telegram notifications
+# v2: persist стану (uptime, кулдауни тривог — рестарт-safe)
+state_db: "data/state.sqlite3"
+
+# Telegram notifications + inline bot
 telegram:
   enabled: true
-  # Bot token and chat ID loaded from secrets
+  # Bot token and chat ID loaded from secrets (.env)
   cooldown_minutes: 30      # Minimum time between same-type alerts
   send_snapshot_on_image_issue: true
+  # v2: хто має право на команди бота (user ids; порожньо = лише chat_id owner)
+  # allowed_users: [428021663]
+  # v2: дайджест замість окремих алертів (0 = миттєві алерти)
+  digest_minutes: 0
+
+# v2: Prometheus metrics (GET /metrics)
+metrics:
+  enabled: false
+  port: 8000
 
 # Logging
 logging:
   level: "INFO"
-  # journald or file
-  handler: "journald"
-  file_path: "/opt/camera-watchdog/logs/camera-watchdog.log"
+  handler: "journald"        # journald | file
+  file_path: "logs/camera-watchdog.log"

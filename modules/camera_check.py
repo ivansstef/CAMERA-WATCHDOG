@@ -1,6 +1,7 @@
 """
-Camera Watchdog - Camera Connection Checks
+Camera Watchdog - Camera Connection Checks (v2)
 Handles ping, RTSP connection, and frame capture.
+v2: multi-vendor — rtsps (TLS), ONVIF profile discovery, RTSP path fallback probing.
 """
 import logging
 import socket
@@ -40,20 +41,20 @@ class RTSPResult:
     frame: np.ndarray | None = None
     error: str = ""
     latency_ms: float = 0.0
+    resolved_path: str = ""   # v2: шлях що запрацював (fallback probing)
 
 
 def ping_camera(ip: str, timeout: float = 2.0) -> PingResult:
     """Ping camera IP address."""
     start = time.time()
     try:
-        # Try ICMP ping first (requires root)
+        # Try ICMP ping first
         result = subprocess.run(
             ['ping', '-c', '1', '-W', str(int(timeout)), ip],
             capture_output=True,
             timeout=timeout + 1
         )
         if result.returncode == 0:
-            # Parse latency from output
             output = result.stdout.decode()
             for line in output.split('\n'):
                 if 'time=' in line:
@@ -61,13 +62,10 @@ def ping_camera(ip: str, timeout: float = 2.0) -> PingResult:
                     try:
                         latency = float(latency_str)
                         return PingResult(True, latency)
-                    except:
+                    except ValueError:
                         pass
             return PingResult(True, (time.time() - start) * 1000)
     except subprocess.TimeoutExpired:
-        pass
-    except PermissionError:
-        # Fall back to TCP ping
         pass
     except Exception:
         pass
@@ -83,60 +81,89 @@ def ping_camera(ip: str, timeout: float = 2.0) -> PingResult:
             return PingResult(False, 0, "timeout")
         except ConnectionRefusedError:
             return PingResult(False, 0, "connection_refused")
-        except Exception as e:
+        except OSError as e:
             return PingResult(False, 0, str(e))
 
     return PingResult(False, 0, "all_ports_failed")
 
 
-def check_rtsp_connection(camera: CameraConfig, username: str = None, password: str = None) -> RTSPResult:
-    """Check RTSP connection and try to capture a frame."""
+def _ffprobe(rtsp_url: str, camera: CameraConfig) -> tuple[int, str, str]:
+    """Run ffprobe against rtsp url; return (returncode, stdout, stderr)."""
+    cmd = [
+        'ffprobe',
+        '-rtsp_transport', camera.rtsp_transport,
+        '-i', rtsp_url,
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height,codec_name,r_frame_rate',
+        '-of', 'csv=p=0'
+    ]
+    result = subprocess.run(cmd, capture_output=True, timeout=camera.rtsp_timeout)
+    return result.returncode, result.stdout.decode('utf-8', 'ignore'), result.stderr.decode('utf-8', 'ignore')
+
+
+def _classify_ffprobe_error(stderr: str) -> CheckResult:
+    if '401' in stderr or 'Unauthorized' in stderr:
+        return CheckResult.AUTH_FAILED
+    if '404' in stderr or 'Not Found' in stderr:
+        return CheckResult.NOT_FOUND
+    if 'timeout' in stderr.lower():
+        return CheckResult.TIMEOUT
+    if 'Connection refused' in stderr:
+        return CheckResult.CONNECTION_REFUSED
+    return CheckResult.ERROR
+
+
+def check_rtsp_connection(camera: CameraConfig, username: str | None = None,
+                          password: str | None = None) -> RTSPResult:
+    """Check RTSP connection; on 404 probes vendor fallback paths (v2)."""
     start = time.time()
-    rtsp_url = build_rtsp_url(camera, username, password)
 
-    try:
-        # Use ffprobe to check stream
-        cmd = [
-            'ffprobe',
-            '-rtsp_transport', camera.rtsp_transport,
-            '-i', rtsp_url,
-            '-v', 'error',
-            '-select_streams', 'v:0',
-            '-show_entries', 'stream=width,height,codec_name,r_frame_rate',
-            '-of', 'csv=p=0'
-        ]
-        result = subprocess.run(cmd, capture_output=True, timeout=camera.rtsp_timeout)
-        latency_ms = (time.time() - start) * 1000
+    candidate_paths: list[str] = [camera.rtsp_path]
+    for p in (camera.fallback_paths or []):
+        if p not in candidate_paths:
+            candidate_paths.append(p)
 
-        if result.returncode != 0:
-            stderr = result.stderr.decode('utf-8', errors='ignore')
-            if '401' in stderr or 'Unauthorized' in stderr:
-                return RTSPResult(False, CheckResult.AUTH_FAILED, error="Authentication failed", latency_ms=latency_ms)
-            elif '404' in stderr or 'Not Found' in stderr:
-                return RTSPResult(False, CheckResult.NOT_FOUND, error="Stream not found", latency_ms=latency_ms)
-            elif 'timeout' in stderr.lower():
-                return RTSPResult(False, CheckResult.TIMEOUT, error="Connection timeout", latency_ms=latency_ms)
-            elif 'Connection refused' in stderr:
-                return RTSPResult(False, CheckResult.CONNECTION_REFUSED, error="Connection refused", latency_ms=latency_ms)
-            else:
-                return RTSPResult(False, CheckResult.ERROR, error=stderr[:200], latency_ms=latency_ms)
+    for idx, path in enumerate(candidate_paths):
+        url = build_rtsp_url(camera, username, password, path=path)
+        try:
+            code, _out, err = _ffprobe(url, camera)
+        except subprocess.TimeoutExpired:
+            return RTSPResult(False, CheckResult.TIMEOUT, error="ffprobe timeout",
+                              latency_ms=(time.time() - start) * 1000)
+        except Exception as e:
+            return RTSPResult(False, CheckResult.ERROR, error=str(e),
+                              latency_ms=(time.time() - start) * 1000)
 
-        # Stream info available, now try to capture a frame
+        if code != 0:
+            kind = _classify_ffprobe_error(err)
+            if kind is CheckResult.NOT_FOUND and idx < len(candidate_paths) - 1:
+                logger.info(f"{camera.id}: path {path!r} → not found, probing fallback ({idx + 2}/{len(candidate_paths)})")
+                continue
+            return RTSPResult(False, kind, error=err[:200],
+                              latency_ms=(time.time() - start) * 1000,
+                              resolved_path=path)
+
+        # Успіх: якщо шлях відрізняється від конфігу — запам'ятовуємо в об'єкті камери
+        if path != camera.rtsp_path:
+            logger.info(f"{camera.id}: fallback path accepted → {path!r} (used from now on)")
+            camera.rtsp_path = path
         frame = capture_frame(camera, username, password)
+        latency_ms = (time.time() - start) * 1000
         if frame is not None:
-            return RTSPResult(True, CheckResult.SUCCESS, frame=frame, latency_ms=latency_ms)
-        else:
-            return RTSPResult(False, CheckResult.ERROR, error="Failed to capture frame", latency_ms=latency_ms)
+            return RTSPResult(True, CheckResult.SUCCESS, frame=frame,
+                              latency_ms=latency_ms, resolved_path=path)
+        return RTSPResult(False, CheckResult.ERROR, error="Failed to capture frame",
+                          latency_ms=latency_ms, resolved_path=path)
 
-    except subprocess.TimeoutExpired:
-        return RTSPResult(False, CheckResult.TIMEOUT, error="ffprobe timeout", latency_ms=(time.time() - start) * 1000)
-    except Exception as e:
-        return RTSPResult(False, CheckResult.ERROR, error=str(e), latency_ms=(time.time() - start) * 1000)
+    return RTSPResult(False, CheckResult.NOT_FOUND, error="All RTSP paths exhausted",
+                      latency_ms=(time.time() - start) * 1000)
 
 
-def capture_frame(camera: CameraConfig, username: str = None, password: str = None) -> np.ndarray | None:
+def capture_frame(camera: CameraConfig, username: str | None = None,
+                  password: str | None = None, path: str | None = None) -> np.ndarray | None:
     """Capture a single frame from RTSP stream using ffmpeg."""
-    rtsp_url = build_rtsp_url(camera, username, password)
+    rtsp_url = build_rtsp_url(camera, username, password, path=path)
 
     try:
         cmd = [
@@ -151,7 +178,6 @@ def capture_frame(camera: CameraConfig, username: str = None, password: str = No
         ]
         result = subprocess.run(cmd, capture_output=True, timeout=camera.rtsp_timeout + 5)
         if result.returncode == 0 and result.stdout:
-            # Decode JPEG from stdout
             nparr = np.frombuffer(result.stdout, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             return frame
@@ -163,7 +189,54 @@ def capture_frame(camera: CameraConfig, username: str = None, password: str = No
     return None
 
 
-def get_stream_info(camera: CameraConfig, username: str = None, password: str = None) -> dict | None:
+def discover_onvif_profiles(camera: CameraConfig, username: str | None = None,
+                            password: str | None = None) -> list[str]:
+    """
+    ONVIF GetProfiles via raw SOAP over HTTP (без python-onvif залежності).
+    Повертає список rtsp:// URI, які камера рекламує (v2 informational helper).
+    """
+    soap_envelope = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">'
+        '<s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        '<GetProfiles xmlns="http://www.onvif.org/ver10/media/wsdl"/>'
+        '</s:Body></s:Envelope>'
+    )
+    results: list[str] = []
+
+    import urllib.request
+    import base64
+    http_port = 80 if camera.port == 554 else camera.port
+    for onvif_path in ("/onvif/device_service", "/onvif/media_service"):
+        try:
+            url = f"http://{camera.ip}:{http_port}{onvif_path}"
+            req = urllib.request.Request(
+                url, data=soap_envelope.encode(),
+                headers={
+                    "Content-Type": "application/soap+xml; charset=utf-8",
+                    "Authorization": "Basic " + base64.b64encode(
+                        f"{username or 'admin'}:{password or ''}".encode()).decode(),
+                }, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=max(5, camera.rtsp_timeout)) as resp:
+                body = resp.read().decode('utf-8', 'ignore')
+            import re
+            for match in re.findall(r'(rtsp[s]?://[^<"\']+?)(?:<|")', body):
+                results.append(match.strip())
+        except Exception as e:
+            logger.debug(f"ONVIF probe {camera.id} {onvif_path}: {e}")
+
+    seen: set[str] = set()
+    unique = []
+    for uri in results:
+        if uri not in seen:
+            seen.add(uri)
+            unique.append(uri)
+    return unique
+
+
+def get_stream_info(camera: CameraConfig, username: str | None = None,
+                    password: str | None = None) -> dict | None:
     """Get stream information (resolution, codec, fps)."""
     rtsp_url = build_rtsp_url(camera, username, password)
 
@@ -183,7 +256,6 @@ def get_stream_info(camera: CameraConfig, username: str = None, password: str = 
             data = json.loads(result.stdout.decode())
             if data.get('streams'):
                 stream = data['streams'][0]
-                # Parse frame rate
                 fps_str = stream.get('r_frame_rate', '0/1')
                 if '/' in fps_str:
                     num, den = fps_str.split('/')
