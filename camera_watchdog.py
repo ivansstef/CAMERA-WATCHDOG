@@ -293,7 +293,7 @@ async def _run_service(args) -> int:
     if args.test_telegram:
         success = await asyncio.to_thread(watchdog.notifier.send_test_message)
         print(f"Test message sent: {success}")
-        await watchdog.state_manager.close()
+        await asyncio.to_thread(watchdog.state_manager.close)
         return 0 if success else 1
 
     if args.test:
@@ -319,7 +319,7 @@ async def _run_service(args) -> int:
                             None, watchdog.image_analyzer.analyze_frame, frame, camera)
                         print(f"Image: {result.issue.value} - {result.details}")
                         print(f"Metrics: {result.metrics}")
-        await watchdog.state_manager.close()
+        await asyncio.to_thread(watchdog.state_manager.close)
         return 0
 
     # Graceful shutdown on SIGTERM/SIGINT

@@ -1,0 +1,112 @@
+# Camera Watchdog v2 — будинок (живі камери реального моніторингу)
+# Секрети: .env (CAMERA_USERNAME / CAMERA_PASSWORD / TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)
+
+cameras:
+  - id: cam65-dvir
+    name: "Двір 65"
+    ip: "192.168.31.65"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam66
+    name: "Камера 66 (h264)"
+    ip: "192.168.31.66"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam67
+    name: "Камера 67 (h264)"
+    ip: "192.168.31.67"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam68
+    name: "Камера 68 (hevc)"
+    ip: "192.168.31.68"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam69
+    name: "Камера 69 (h264)"
+    ip: "192.168.31.69"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam70
+    name: "Камера 70 (h264)"
+    ip: "192.168.31.70"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam71
+    name: "Камера 71 (hevc)"
+    ip: "192.168.31.71"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam72
+    name: "Камера 72 (h264)"
+    ip: "192.168.31.72"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam73
+    name: "Камера 73 (hevc)"
+    ip: "192.168.31.73"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam74
+    name: "Камера 74 (hevc)"
+    ip: "192.168.31.74"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam75
+    name: "Камера 75 (h264)"
+    ip: "192.168.31.75"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam77
+    name: "Камера 77 (hevc)"
+    ip: "192.168.31.77"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam78
+    name: "Камера 78 (h264)"
+    ip: "192.168.31.78"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+  - id: cam79
+    name: "Камера 79 (hevc)"
+    ip: "192.168.31.79"
+    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+
+check:
+  interval_seconds: 30
+  consecutive_failures_threshold: 3
+
+# вкрадені 201/202 — після монтажу нових камер додай окремі блоки
+theft_prompt_after_minutes: 30
+
+image_check:
+  enabled: true
+  interval_seconds: 60
+  consecutive_failures: 3
+  black_threshold: 0.02
+  white_threshold: 0.98
+  contrast_threshold: 0.03
+  blocked_threshold: 0.001
+  blur_threshold: 50.0
+  frozen_frame:
+    enabled: true
+    min_interval_minutes: 5
+    similarity_threshold: 0.995
+    method: "phash"
+  night_profile:
+    timezone: "Europe/Kyiv"
+    start_hour: 22
+    end_hour: 6
+    overrides:
+      black_threshold: 0.005
+      contrast_threshold: 0.015   # IR-ніч: сцени темні й малоконтрастні — норма
+      blur_threshold: 30
+      blocked_threshold: 0.0003   # IR-ніч: повністю закритий об'єктив тільки
+
+events:
+  path: "data/events"
+  retention_days: 30
+  cleanup_interval_hours: 24
+
+state_db: "data/state.sqlite3"
+
+telegram:
+  enabled: true
+  cooldown_minutes: 30
+  send_snapshot_on_image_issue: true
+  digest_minutes: 0
+
+metrics:
+  enabled: false
+  port: 8000
+
+logging:
+  level: "INFO"
+  handler: "journald"

@@ -50,7 +50,8 @@ class ImageAnalyzer:
 
     def _active_profile(self) -> tuple[str, dict]:
         """
-        v2: day/night profile switch.
+        v2: day/night profile switch. Годинник — КИЇВСЬКИЙ (Europe/Kyiv), бо
+        нічні IR-сцени темні і безконтрастні; UTC-сервер зсунутий на 3 год.
         night_profile: {start_hour: 22, end_hour: 6, overrides: {black_threshold: 0.005}}
         Returns (profile_name, effective_thresholds).
         """
@@ -68,7 +69,11 @@ class ImageAnalyzer:
 
         start = int(prof.get('start_hour', 22))
         end = int(prof.get('end_hour', 6))
-        hour = datetime.datetime.now().hour
+        try:
+            from zoneinfo import ZoneInfo
+            hour = datetime.datetime.now(ZoneInfo(prof.get('timezone', 'Europe/Kyiv'))).hour
+        except Exception:
+            hour = datetime.datetime.now().hour
         in_night = (hour >= start or hour < end) if start != end else False
 
         if in_night:
@@ -114,7 +119,9 @@ class ImageAnalyzer:
                 f"Very low contrast (std={std_val:.4f}, profile={profile_name})",
                 metrics, profile=profile_name)
 
-        # 4. Blocked lens (4x4 grid block variance)
+        # 4. Blocked lens (4x4 grid block variance) — v2: мажоритарний критерій.
+        # Закритий об'єктив = ВЕСЬ кадр рівний (≥80% блоків гладких). Один шматок
+        # тротуару/стіни з нульовою текстурою — нормальна сцена, не алерт.
         h, w = gray.shape
         block_vars = []
         for y in range(0, h, h // 4):
@@ -124,12 +131,15 @@ class ImageAnalyzer:
                     block_vars.append(float(np.var(block)))
 
         if block_vars:
+            flat_blocks = sum(1 for v in block_vars if v < th['blocked_threshold'])
             min_var = min(block_vars)
             metrics['min_block_var'] = min_var
-            if min_var < th['blocked_threshold']:
+            metrics['flat_blocks'] = float(flat_blocks)
+            if flat_blocks >= len(block_vars) * 0.8:
                 return ImageAnalysisResult(
                     ImageIssue.BLOCKED,
-                    f"Possible blocked lens (min_block_var={min_var:.6f}, profile={profile_name})",
+                    f"Blocked lens ({flat_blocks}/{len(block_vars)} blocks flat,"
+                    f" min_block_var={min_var:.6f}, profile={profile_name})",
                     metrics, profile=profile_name)
 
         # 5. Blur (Laplacian variance)
