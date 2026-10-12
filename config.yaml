@@ -1,0 +1,59 @@
+# Camera Watchdog Configuration
+# Place: /opt/osbb/agents/monitoring/camera-watchdog/config.yaml
+
+cameras:
+  - id: entrance1-floor6
+    name: "1 під'їзд 6 поверх"
+    ip: "192.168.31.201"
+    enabled: true
+    rtsp:
+      # URL template: rtsp://{username}:{password}@{ip}{path}
+      # Credentials loaded from secrets file
+      path: "/h264/ch1/main/av_stream"
+      transport: "tcp"
+      timeout: 10
+    # Optional: override global check intervals for this camera
+    # check_interval_seconds: 30
+    # consecutive_failures_threshold: 3
+
+# Global check intervals
+check:
+  interval_seconds: 30
+  consecutive_failures_threshold: 3
+
+# Image analysis configuration
+image_check:
+  enabled: true
+  interval_seconds: 60
+  consecutive_failures: 3
+  # Thresholds (0.0 - 1.0)
+  black_threshold: 0.02      # Mean pixel value below this = black frame
+  white_threshold: 0.98      # Mean pixel value above this = white frame
+  contrast_threshold: 0.03   # Standard deviation below this = low contrast
+  blocked_threshold: 0.005   # Very low variance = blocked lens (more conservative)
+  blur_threshold: 50.0       # Laplacian variance below this = blurry
+  frozen_frame:
+    enabled: true
+    min_interval_minutes: 5  # Minimum time between frame comparisons
+    similarity_threshold: 0.995  # SSIM above this = frozen frame
+    method: "phash"          # phash, ssim, diff
+
+# Event storage
+events:
+  path: "/opt/osbb/data/camera-watchdog/events"
+  retention_days: 30
+  cleanup_interval_hours: 24
+
+# Telegram notifications
+telegram:
+  enabled: true
+  # Bot token and chat ID loaded from secrets
+  cooldown_minutes: 30      # Minimum time between same-type alerts
+  send_snapshot_on_image_issue: true
+
+# Logging
+logging:
+  level: "INFO"
+  # journald or file
+  handler: "journald"
+  file_path: "/opt/osbb/agents/monitoring/camera-watchdog/logs/camera-watchdog.log"
