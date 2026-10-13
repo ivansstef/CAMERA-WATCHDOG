@@ -64,6 +64,10 @@ class CameraStatus:
         elif self.state in (CameraState.IMAGE_PROBLEM, CameraState.UNKNOWN):
             self.state = CameraState.ONLINE
 
+        # v2.2: успіх скидає pending offline-вікно (флейк не рахується як простій)
+        if self.state == CameraState.ONLINE:
+            self.offline_since = 0
+
     def record_failure(self, failure_type: str = "connection"):
         """Record failed check."""
         now = time.time()

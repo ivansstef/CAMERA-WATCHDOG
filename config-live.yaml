@@ -21,7 +21,7 @@ cameras:
   - id: cam69
     name: "Камера 69 (h264)"
     ip: "192.168.31.69"
-    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+    rtsp: { path: "/h264/ch1/main/av_stream", transport: "tcp", timeout: 10 }
   - id: cam70
     name: "Камера 70 (h264)"
     ip: "192.168.31.70"
@@ -45,7 +45,7 @@ cameras:
   - id: cam75
     name: "Камера 75 (h264)"
     ip: "192.168.31.75"
-    rtsp: { path: "/cam/realmonitor?channel=1&subtype=0", transport: "tcp", timeout: 10 }
+    rtsp: { path: "/h264/ch1/main/av_stream", transport: "tcp", timeout: 10 }
   - id: cam77
     name: "Камера 77 (hevc)"
     ip: "192.168.31.77"

@@ -222,12 +222,24 @@ class ImageAnalyzer:
                     if camera_id in self.last_frames:
                         last_frame, _ = self.last_frames[camera_id]
                         ssim = self._compute_ssim(frame, last_frame)
-                        if ssim >= th['frozen_frame_similarity_threshold']:
+                        # v2.2: жива камера на статичній сцені має шум сенсора —
+                        # кадри попіксельно НЕ ідентичні. Справді заморожений потік
+                        # (кодек застряг) видає той самий кадр: diff = 0.
+                        mean_abs_diff = float(np.mean(cv2.absdiff(
+                            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame,
+                            cv2.cvtColor(last_frame, cv2.COLOR_BGR2GRAY) if len(last_frame.shape) == 3 else last_frame)))
+                        sensor_noise = mean_abs_diff > 0.5   # живий шум → не frozen
+                        if ssim >= th['frozen_frame_similarity_threshold'] and not sensor_noise:
                             return ImageAnalysisResult(
                                 ImageIssue.FROZEN,
-                                f"Frozen frame (phash={similarity:.4f}, SSIM={ssim:.4f})",
+                                f"Frozen frame (phash={similarity:.4f}, SSIM={ssim:.4f},"
+                                f" diff={mean_abs_diff:.3f})",
                                 {'phash_similarity': similarity, 'ssim': ssim,
+                                 'mean_abs_diff': mean_abs_diff,
                                  'hamming_distance': hamming})
+                        elif sensor_noise and similarity >= 0.99:
+                            logger.debug(f"{camera_id}: static scene with sensor noise"
+                                         f" (diff={mean_abs_diff:.3f}) — жива, не frozen")
 
                 self.last_phashes[camera_id] = (phash, now)
                 self.last_frames[camera_id] = (frame.copy(), now)

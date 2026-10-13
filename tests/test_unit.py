@@ -313,3 +313,67 @@ class TestFrozenNight:
         a.analyze_frame(f1, cam)
         r2 = a.analyze_frame(f1, cam)
         assert r2.issue == ImageIssue.FROZEN, "з night_enabled=true нічна статичність = алерт (old behavior)"
+
+
+# ---------- v2.2: флейк-закон (успіх скидає простій) + frozen sensor-noise ----------
+
+class TestV22FlakyAndFrozen:
+    def test_success_resets_pending_offline_window(self, cam, tmp_db):
+        """3 фейли → успіх → 3 фейли: простій рахується тільки з останнього флейку."""
+        m = StateManager({cam.id: cam}, store=tmp_db)
+        st = m.get_status(cam.id)
+        st.record_success(1, 1)
+        for _ in range(3):
+            st.record_failure("ping")
+        st.state = CameraState.OFFLINE
+        st.offline_since = time.time() - 3600
+        st.record_success(1, 1)     # одужання
+        assert st.total_downtime_seconds > 3500    # простій з аркеснуто
+        # новий флейк-вікно: перший фейл
+        st.record_failure("ping")
+        assert st.offline_since != 0
+        before = st.total_downtime_seconds
+        st.record_success(1, 1)     # успіх — флейк закрився
+        assert st.offline_since == 0
+        assert st.total_downtime_seconds == before   # флейк НІЧОГО не додав
+
+    def test_frozen_needs_zero_diff(self):
+        """Жива камера (шум сенсора) на статичній сцені — не frozen."""
+        from modules.config_loader import ImageCheckConfig
+        cfg = ImageCheckConfig(frozen_frame_enabled=True,
+                               frozen_frame_min_interval_minutes=0,
+                               frozen_frame_similarity_threshold=0.5)
+        a = ImageAnalyzer(cfg)
+        cam = CameraConfig(id='v22', name='V22', ip='1.1.1.1')
+        rng = np.random.default_rng(3)
+        base = rng.normal(120, 45, (240, 320, 3)).clip(0, 255).astype(np.uint8)
+        noise = rng.normal(0, 6, (240, 320, 3)).clip(-12, 12).astype(np.int16)
+        live1 = (base.astype(np.int16) + noise).clip(0, 255).astype(np.uint8)
+        live2 = (base.astype(np.int16) + noise).clip(0, 255).astype(np.uint8)  # майже той самий (шум той самий → diff 0)
+        # робимо два різні кадри з різним шумом
+        noise2 = rng.normal(0, 6, (240, 320, 3)).clip(-12, 12).astype(np.int16)
+        live2 = (base.astype(np.int16) + noise2).clip(0, 255).astype(np.uint8)
+        a.analyze_frame(live1, cam)
+        r = a.analyze_frame(live2, cam)
+        assert r.issue != ImageIssue.FROZEN, f"шум сенсора {r.metrics.get('mean_abs_diff')} = жива камера"
+
+    def test_true_frozen_still_fires(self):
+        """Кодек застряг: той самий кадр біт-в-біт → frozen алерт."""
+        from modules.config_loader import ImageCheckConfig
+        cfg = ImageCheckConfig(frozen_frame_enabled=True,
+                               frozen_frame_min_interval_minutes=0,
+                               frozen_frame_similarity_threshold=0.5,
+                               blocked_threshold=0.0002)   # isolation: блоки шуму тут не рахуються blocked
+        a = ImageAnalyzer(cfg)
+        cam = CameraConfig(id='v22b', name='V22B', ip='1.1.1.1')
+        # текстурний кадр (4 квадранти з різною яркістю → блоки не flat)
+        frame = np.zeros((240, 320, 3), dtype=np.uint8)
+        frame[:120, :160] = 60
+        frame[:120, 160:] = 160
+        frame[120:, :160] = 200
+        frame[120:, 160:] = 110
+        noise = np.random.default_rng(3).normal(0, 25, (240, 320, 3)).astype(np.int16)
+        frame = (frame.astype(np.int16) + noise).clip(0, 255).astype(np.uint8)
+        a.analyze_frame(frame, cam)
+        r = a.analyze_frame(frame.copy(), cam)   # той самий біт-в-біт
+        assert r.issue == ImageIssue.FROZEN
