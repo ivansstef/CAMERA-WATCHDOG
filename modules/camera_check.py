@@ -178,9 +178,11 @@ def capture_frame(camera: CameraConfig, username: str | None = None,
         cmd = [
             'ffmpeg',
             '-rtsp_transport', camera.rtsp_transport,
-            '-timeout', '5000000',        # 5с RTSP handshake timeout (мкс)
-            '-rw_timeout', '10000000',    # 10с read timeout (мкс)
             '-i', rtsp_url,
+            # v2.4: timeout — protocol-private option RTSP demuxer, МУСКАЄ бути ПІСЛЯ -i.
+            # 5с socket I/O timeout (мкс) → graceful RTSP teardown при обриві (не kill),
+            # камери Hikvision не коплять мертві сесії ("Operation not permitted")
+            '-timeout', '5000000',
             '-vframes', '1',
             '-f', 'image2pipe',
             '-vcodec', 'mjpeg',
