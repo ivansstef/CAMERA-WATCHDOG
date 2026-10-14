@@ -124,13 +124,17 @@ class ImageAnalyzer:
             return ImageAnalysisResult(ImageIssue.NONE, f"Degenerate frame skipped (std≈0, profile={profile_name})",
                                        {'std': pre_std}, profile=profile_name)
 
-        # 1. Black frame
+        # 1. Black frame — v2.4.4: подвійний критерій. Дуже темна сцена зі слабим
+        # контентом (сутінки, IR не ввімкнена: mean 0.004, std 0.006) — жива камера.
+        # Справді зламана/повністю чорна: mean < порогy і std майже нуль.
         mean_val = float(np.mean(normalized))
+        std_preview = float(np.std(normalized))
         metrics['mean'] = mean_val
-        if mean_val < th['black_threshold']:
+        metrics['std'] = std_preview
+        if mean_val < th['black_threshold'] and std_preview < 0.004:
             return ImageAnalysisResult(
                 ImageIssue.BLACK,
-                f"Frame nearly black (mean={mean_val:.4f}, profile={profile_name})",
+                f"Frame truly black (mean={mean_val:.4f}, std={std_preview:.4f}, profile={profile_name})",
                 metrics, profile=profile_name)
 
         # 2. White frame
