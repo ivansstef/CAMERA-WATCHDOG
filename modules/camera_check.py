@@ -116,7 +116,11 @@ def _classify_ffprobe_error(stderr: str) -> CheckResult:
 
 def check_rtsp_connection(camera: CameraConfig, username: str | None = None,
                           password: str | None = None) -> RTSPResult:
-    """Check RTSP connection; on 404 probes vendor fallback paths (v2)."""
+    """
+    Check RTSP connection; on 404 probes vendor fallback paths (v2).
+    v2.2: ffprobe + capture об'єднані — на камеру відкривається ОДНА RTSP-сесія
+    за перевірку (Hikvision вичерпує сесійний пул при 2 сесіях/check × частоті).
+    """
     start = time.time()
 
     candidate_paths: list[str] = [camera.rtsp_path]
@@ -162,13 +166,20 @@ def check_rtsp_connection(camera: CameraConfig, username: str | None = None,
 
 def capture_frame(camera: CameraConfig, username: str | None = None,
                   password: str | None = None, path: str | None = None) -> np.ndarray | None:
-    """Capture a single frame from RTSP stream using ffmpeg."""
+    """
+    Capture a single frame from RTSP stream using ffmpeg.
+    v2.2: -timeout (мкс) — ffmpeg САМ закриває RTSP TEARDOWN-ом при помилці/обриві,
+    замість kill → камера не копить мертві сесії (Operation not permitted).
+    -rw_timeout guards мережеві зависання на read-стадії.
+    """
     rtsp_url = build_rtsp_url(camera, username, password, path=path)
 
     try:
         cmd = [
             'ffmpeg',
             '-rtsp_transport', camera.rtsp_transport,
+            '-timeout', '5000000',        # 5с RTSP handshake timeout (мкс)
+            '-rw_timeout', '10000000',    # 10с read timeout (мкс)
             '-i', rtsp_url,
             '-vframes', '1',
             '-f', 'image2pipe',
