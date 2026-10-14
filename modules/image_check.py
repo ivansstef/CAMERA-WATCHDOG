@@ -118,7 +118,17 @@ class ImageAnalyzer:
         # "низький контраст" сцени і не blocked lens: справжня камера з заблокованим
         # об'єктивом рахується мажоритарним детектором на реальних кадрах.
         # → пропускаємо аналіз цього кадру цілком, чекаємо наступний.
+        # v2.4.7: Dahua gray-null glitch — std мізер (<0.01) АЛЕ mean рівно середній
+        # (0.40-0.60): рівно-сірий кадр який не буває ні вдень ні вночі. Такі кадри
+        # знімав з 74: суцільно #808080 (std 0.0014, mean 0.5). Реальні сцени ніколи
+        # не мають рівно середню яркість з нульовим розкидом.
         pre_std = float(np.std(normalized))
+        pre_mean = float(np.mean(normalized))
+        if pre_std < 0.01 and 0.40 < pre_mean < 0.60:
+            logger.debug(f"{camera.id}: gray-null glitch (std={pre_std:.5f}, mean={pre_mean:.3f}) — skipped")
+            return ImageAnalysisResult(ImageIssue.NONE,
+                                       f"Gray-null transfer glitch (std={pre_std:.5f}, mean={pre_mean:.3f})",
+                                       {'std': pre_std, 'mean': pre_mean}, profile=profile_name)
         if pre_std < 0.001:
             logger.debug(f"{camera.id}: degenerate frame (std={pre_std:.6f}) — skipped, no alert")
             return ImageAnalysisResult(ImageIssue.NONE, f"Degenerate frame skipped (std≈0, profile={profile_name})",

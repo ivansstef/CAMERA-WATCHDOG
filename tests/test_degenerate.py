@@ -63,3 +63,26 @@ class TestBlackDoubleCriterion:
         frame = rng.normal(0.5, 0.7, (240, 320, 3)).clip(0, 255).astype(np.uint8)
         r = a.analyze_frame(frame, cam)
         assert r.issue == ImageIssue.BLACK
+
+
+class TestGrayNullGlitch:
+    def test_gray_null_frame_skipped(self):
+        """Dahua gray-null (std 0.0014, mean 0.5) — skip, не low_contrast."""
+        a = ImageAnalyzer(ImageCheckConfig())
+        cam = CameraConfig(id='gn', name='GN', ip='1.1.1.1')
+        # суцільний #808080 з мікрошумом
+        rng = np.random.default_rng(11)
+        frame = rng.normal(128, 0.35, (240, 320, 3)).clip(0, 255).astype(np.uint8)
+        r = a.analyze_frame(frame, cam)
+        assert r.issue == ImageIssue.NONE, r.details
+
+    def test_real_gray_scene_not_skipped(self):
+        """Реальна сіра сцена (тротуар, fog) — std вище, НЕ skip → детектори працюють"""
+        a = ImageAnalyzer(ImageCheckConfig())
+        cam = CameraConfig(id='gr', name='GR', ip='1.1.1.1')
+        rng = np.random.default_rng(12)
+        # туманна сцена: mean 0.5 але std 0.08 (структура є)
+        frame = rng.normal(128, 20, (240, 320, 3)).clip(0, 255).astype(np.uint8)
+        r = a.analyze_frame(frame, cam)
+        # fog-сцена: std 0.078 > 0.03 → не low-contrast; далі blocked/blur перевірки
+        assert r.issue != ImageIssue.LOW_CONTRAST
