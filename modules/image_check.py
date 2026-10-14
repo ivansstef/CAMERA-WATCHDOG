@@ -170,6 +170,20 @@ class ImageAnalyzer:
             metrics['min_block_var'] = min_var
             metrics['flat_blocks'] = float(flat_blocks)
             if flat_blocks >= len(block_vars) * 0.8:
+                # v2.4.6: ніччю "blocked" з ЛЕГКИМ шумом (min_var > 0 але < 0.0001)
+                # = IR-фон без об'єктів, жива камера в темряві — не алерт.
+                # Справді закритий об'єктив/застряг кодек = абс. нуль var (0.000000)
+                # або явна однотонність усього кадру.
+                is_night_now = profile_name == "night"
+                has_faint_noise = 0.0 < min_var < 0.0001
+                if is_night_now and has_faint_noise:
+                    logger.debug(
+                        f"{camera.id}: night flat scene (min_var={min_var:.6f}) —"
+                        " IR-темрява без об'єктів, skip")
+                    return ImageAnalysisResult(
+                        ImageIssue.NONE,
+                        f"Night IR dark scene (min_var={min_var:.6f}) — skipped",
+                        metrics, profile=profile_name)
                 return ImageAnalysisResult(
                     ImageIssue.BLOCKED,
                     f"Blocked lens ({flat_blocks}/{len(block_vars)} blocks flat,"
