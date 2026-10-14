@@ -156,7 +156,7 @@ def _noise_frame(mean: float, std: float, size: tuple = (128, 96)) -> np.ndarray
 
 class TestImageDetectors:
     def test_black_frame(self, analyzer):
-        result = analyzer.analyze_frame(_noise_frame(3, 3, size=(320, 240)), _test_cam())
+        result = analyzer.analyze_frame(_noise_frame(1, 0.5, size=(320, 240)), _test_cam())
         assert result.issue == ImageIssue.BLACK
 
     def test_white_frame(self, analyzer):

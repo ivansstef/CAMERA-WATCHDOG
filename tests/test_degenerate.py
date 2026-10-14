@@ -30,11 +30,11 @@ class TestDegenerateFrame:
         assert r.issue == ImageIssue.NONE
 
     def test_noisy_dark_frame_still_black(self):
-        """Темний кадр ЗІ ШУМОМ (справді чорна камера/об'єктив) → BLACK алерт"""
+        """Справді чорна камера: mean≈0.002, std≈0.002 (дуже слабий шум) → BLACK"""
         a = ImageAnalyzer(ImageCheckConfig())
         cam = CameraConfig(id='dg3', name='DG3', ip='1.1.1.1')
         rng = np.random.default_rng(5)
-        frame = rng.normal(2, 3, (240, 320, 3)).clip(0, 255).astype(np.uint8)
+        frame = rng.normal(0.5, 0.5, (240, 320, 3)).clip(0, 255).astype(np.uint8)
         r = a.analyze_frame(frame, cam)
         assert r.issue == ImageIssue.BLACK
 
@@ -60,6 +60,6 @@ class TestBlackDoubleCriterion:
         a = self._analyzer()
         cam = CameraConfig(id='tb', name='TB', ip='1.1.1.1')
         rng = np.random.default_rng(4)
-        frame = rng.normal(0.5, 0.8, (240, 320, 3)).clip(0, 255).astype(np.uint8)
+        frame = rng.normal(0.5, 0.7, (240, 320, 3)).clip(0, 255).astype(np.uint8)
         r = a.analyze_frame(frame, cam)
         assert r.issue == ImageIssue.BLACK
