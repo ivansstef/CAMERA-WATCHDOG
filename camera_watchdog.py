@@ -289,13 +289,29 @@ class CameraWatchdog:
         if enabled_cameras:
             await asyncio.to_thread(self.notifier.send_startup_message, enabled_cameras)
 
-        for camera in enabled_cameras:
-            task = asyncio.create_task(self.run_camera_loop(camera), name=f"camera-{camera.id}")
+        # v2.4.2: staggered startup — рівномірний розкид старту камер по інтервалу.
+        # Без нього після рестарту 14 камер відкривають ~28 RTSP-сесій одночасно →
+        # Hikvision-камери (ліміт ~10 клієнтів; NVR записує всі канали) відкидають
+        # нові sесії з "Operation not permitted".
+        n = len(enabled_cameras)
+        for i, camera in enumerate(enabled_cameras):
+            stagger_s = round(i * (camera.check_interval_seconds / max(n, 1)))
+            if stagger_s > 0:
+                self.logger.info(f"{camera.name}: старт через {stagger_s}с (stagger)")
+            task = asyncio.create_task(
+                self._delayed_camera_loop(camera, stagger_s),
+                name=f"camera-{camera.id}")
             self.tasks[camera.id] = task
 
         self.tasks["_cleanup"] = asyncio.create_task(self.cleanup_loop(), name="cleanup")
 
         self.logger.info("Camera Watchdog v2 started")
+
+    async def _delayed_camera_loop(self, camera: CameraConfig, delay_s: int):
+        """Задержка перед першим циклом (stagger), далі — звичайний цикл."""
+        if delay_s > 0:
+            await asyncio.sleep(delay_s)
+        await self.run_camera_loop(camera)
 
     async def stop(self):
         """Stop monitoring."""
