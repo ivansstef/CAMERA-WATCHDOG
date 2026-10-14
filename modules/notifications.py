@@ -2,11 +2,14 @@
 Camera Watchdog - Telegram Notifications (v2)
 Sending alerts to Telegram with cooldown, anti-spam, SQLite-persisted cooldown state,
 and optional digest mode (periodic summary instead of instant alerts).
+v2.4.5: всі часові мітки — в КИЇВСЬКІЙ зоні (config: timezone), а не в UTC сервера.
 """
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -14,6 +17,14 @@ from modules.config_loader import CameraConfig, TelegramConfig
 from modules.image_check import ImageIssue
 
 logger = logging.getLogger(__name__)
+
+
+def _now_str(tz_name: str = "Europe/Kyiv") -> str:
+    """Часовий штамп у локальній зоні користувача (не UTC сервера)."""
+    try:
+        return datetime.now(ZoneInfo(tz_name)).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return _now_str()
 
 
 @dataclass
@@ -49,7 +60,7 @@ class TelegramNotifier:
             f"🎯 <b>{camera.name}</b> ({camera.ip})\n"
             f"Зона: <b>{trigger['region']}</b>\n"
             f"Змінено: {trigger['change_pct']}% (поріг {trigger['threshold_pct']}%)\n"
-            f"Час: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Час: {_now_str()}"
         )
         photo = None
         if trigger.get('snapshot'):
@@ -159,7 +170,7 @@ class TelegramNotifier:
             "🔴 <b>КАМЕРА OFFLINE</b>\n\n"
             f"{camera.name}\n"
             f"IP: {camera.ip}{downtime_str}\n"
-            f"Час: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Час: {_now_str()}"
         )
 
         success = self._send_message(text)
@@ -183,7 +194,7 @@ class TelegramNotifier:
             "🟢 <b>КАМЕРА ONLINE</b>\n\n"
             f"{camera.name}\n"
             f"IP: {camera.ip}{downtime_str}\n"
-            f"Відновлено: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Відновлено: {_now_str()}"
         )
 
         success = self._send_message(text)
@@ -216,7 +227,7 @@ class TelegramNotifier:
             f"IP: {camera.ip}\n"
             f"Причина: {issue_name}\n"
             f"Деталі: {details}\n"
-            f"Час: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Час: {_now_str()}"
         )
 
         success = self._send_message(
@@ -237,7 +248,7 @@ class TelegramNotifier:
             "✅ <b>Camera Watchdog запущено</b>\n\n"
             f"Моніторинг активний для {len(cameras)} камер:\n"
             f"{cam_list}\n\n"
-            f"Час: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Час: {_now_str()}"
         )
 
         return self._send_message(text)
@@ -251,7 +262,7 @@ class TelegramNotifier:
             "📹 <b>CAMERA WATCHDOG v2</b>\n\n"
             "🧪 <b>Тестове повідомлення</b>\n\n"
             "Система моніторингу камер працює.\n"
-            f"Час: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Час: {_now_str()}"
         )
 
         return self._send_message(text)
@@ -280,6 +291,6 @@ class TelegramNotifier:
         text = (
             "📹 <b>CAMERA WATCHDOG — DIGEST</b>\n\n"
             f"{len(cameras)} камер:\n" + "\n".join(lines) +
-            f"\n\nЧас: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f"\n\nЧас: {_now_str()}"
         )
         return self._send_message(text)
