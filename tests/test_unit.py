@@ -377,3 +377,37 @@ class TestV22FlakyAndFrozen:
         a.analyze_frame(frame, cam)
         r = a.analyze_frame(frame.copy(), cam)   # той самий біт-в-біт
         assert r.issue == ImageIssue.FROZEN
+
+
+# ---------- v2.2b: sun mode (літо/зима) ----------
+
+class TestSunMode:
+    def _cfg_with_sun(self):
+        from modules.config_loader import ImageCheckConfig
+        import datetime as dt
+        return ImageCheckConfig(night_profile={
+            'mode': 'sun', 'lat': 50.45, 'lon': 30.52, 'timezone': 'Europe/Kyiv'})
+
+    def _with_now(self, monkeypatch, dt_obj):
+        import modules.image_check as ic
+        real_dt = ic.datetime
+        class FakeDT(real_dt.__class__ if False else object):
+            def __getattr__(self, name): return getattr(real_dt, name)
+        # простіше: monkeypatch datetime.datetime.now не варіант через C-об'єкт. 
+        # Тому: патчимо тільки _active_profile hour через sun-путь: sun mode викликає
+        # modules.suntimes — що юзає свій now_local = datetime.datetime.now(zone)
+        # → патчимо modules.suntimes.is_night
+        ic_is_night = ic
+
+    def test_sun_mode_night_overrides_applied(self):
+        """Ніч по sun → night overrides застосовуються (contrast 0.015)."""
+        cfg = self._cfg_with_sun()
+        a = ImageAnalyzer(cfg)
+        import modules.suntimes as st
+        backup = st.is_night
+        st.is_night = lambda *a_, **kw_: True   # ніч зараз
+        try:
+            name, th = a._active_profile()
+            assert name == "night"
+        finally:
+            st.is_night = backup

@@ -82,9 +82,12 @@ image_check:
     similarity_threshold: 0.995
     method: "phash"
   night_profile:
+    mode: sun              # sun = за сходом/заходом (літо-зима саме підлаштовується)
+    lat: 50.45             # Київ
+    lon: 30.52
     timezone: "Europe/Kyiv"
-    start_hour: 22
-    end_hour: 6
+    morning_offset_min: 30   # ніч закінчується через 30 хв після сходу
+    evening_offset_min: 30   # ніч починається за 30 хв до заходу
     overrides:
       black_threshold: 0.005
       contrast_threshold: 0.015   # IR-ніч: сцени темні й малоконтрастні — норма

@@ -50,9 +50,10 @@ class ImageAnalyzer:
 
     def _active_profile(self) -> tuple[str, dict]:
         """
-        v2: day/night profile switch. Годинник — КИЇВСЬКИЙ (Europe/Kyiv), бо
-        нічні IR-сцени темні і безконтрастні; UTC-сервер зсунутий на 3 год.
-        night_profile: {start_hour: 22, end_hour: 6, overrides: {black_threshold: 0.005}}
+        v2.2: day/night профіль з трьома режимами:
+        - {start_hour, end_hour} — фіксовані години (Kyiv за замовчуванням)
+        - mode: sun (coords у конфігу) — за сходом/заходом: ніч = [захід-30м, схід+30м]
+          самостійно підлаштовується літо/зима (жовтень схід 7:56 замість 6:00)
         Returns (profile_name, effective_thresholds).
         """
         base = {
@@ -67,14 +68,32 @@ class ImageAnalyzer:
         if not prof:
             return "day", base
 
-        start = int(prof.get('start_hour', 22))
-        end = int(prof.get('end_hour', 6))
         try:
             from zoneinfo import ZoneInfo
-            hour = datetime.datetime.now(ZoneInfo(prof.get('timezone', 'Europe/Kyiv'))).hour
+            tz = ZoneInfo(prof.get('timezone', 'Europe/Kyiv'))
         except Exception:
-            hour = datetime.datetime.now().hour
-        in_night = (hour >= start or hour < end) if start != end else False
+            from datetime import timezone, timedelta
+            tz = timezone(timedelta(hours=3))
+        now_tz = datetime.datetime.now(tz)
+        hour = now_tz.hour
+
+        if prof.get('mode') == 'sun':
+            try:
+                from modules.suntimes import is_night
+                lat = float(prof.get('lat', 50.45))
+                lon = float(prof.get('lon', 30.52))
+                import zoneinfo as _zi
+                now_local = datetime.datetime.now(_zi.ZoneInfo(prof.get('timezone', 'Europe/Kyiv')))
+                in_night = is_night(lat, lon, now_local,
+                                    morning_offset_min=int(prof.get('morning_offset_min', 30)),
+                                    evening_offset_min=int(prof.get('evening_offset_min', 30)))
+            except Exception as e:
+                logger.warning(f"sun mode failed ({e}) → fallback fixed hours")
+                in_night = (hour >= int(prof.get('start_hour', 22)) or hour < int(prof.get('end_hour', 6)))
+        else:
+            start = int(prof.get('start_hour', 22))
+            end = int(prof.get('end_hour', 6))
+            in_night = (hour >= start or hour < end) if start != end else False
 
         if in_night:
             effective = dict(base)
