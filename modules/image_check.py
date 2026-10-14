@@ -113,6 +113,17 @@ class ImageAnalyzer:
         normalized = gray.astype(np.float32) / 255.0
         metrics: dict[str, float] = {}
 
+        # v2.4.3: вироджений кадр (std=0 — усі піксели однакові) = glitch передачи
+        # (Dahua іноді віддає такі при старті потоку / I-frame переході). Це НЕ
+        # "низький контраст" сцени і не blocked lens: справжня камера з заблокованим
+        # об'єктивом рахується мажоритарним детектором на реальних кадрах.
+        # → пропускаємо аналіз цього кадру цілком, чекаємо наступний.
+        pre_std = float(np.std(normalized))
+        if pre_std < 0.001:
+            logger.debug(f"{camera.id}: degenerate frame (std={pre_std:.6f}) — skipped, no alert")
+            return ImageAnalysisResult(ImageIssue.NONE, f"Degenerate frame skipped (std≈0, profile={profile_name})",
+                                       {'std': pre_std}, profile=profile_name)
+
         # 1. Black frame
         mean_val = float(np.mean(normalized))
         metrics['mean'] = mean_val

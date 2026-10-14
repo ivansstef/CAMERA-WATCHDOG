@@ -156,16 +156,16 @@ def _noise_frame(mean: float, std: float, size: tuple = (128, 96)) -> np.ndarray
 
 class TestImageDetectors:
     def test_black_frame(self, analyzer):
-        result = analyzer.analyze_frame(_frame(2), _test_cam())
+        result = analyzer.analyze_frame(_noise_frame(3, 3, size=(320, 240)), _test_cam())
         assert result.issue == ImageIssue.BLACK
 
     def test_white_frame(self, analyzer):
-        result = analyzer.analyze_frame(_frame(254), _test_cam())
+        result = analyzer.analyze_frame(_noise_frame(252, 2, size=(320, 240)), _test_cam())
         assert result.issue == ImageIssue.WHITE
 
     def test_low_contrast(self, analyzer):
         # mean≈128 але std дуже малий
-        result = analyzer.analyze_frame(_frame(128, size=(200, 200)), _test_cam())
+        result = analyzer.analyze_frame(_noise_frame(128, 4, size=(200, 200)), _test_cam())
         assert result.issue in (ImageIssue.LOW_CONTRAST, ImageIssue.BLOCKED)
 
     def test_realistic_frame_ok(self):
