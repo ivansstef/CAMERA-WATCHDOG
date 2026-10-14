@@ -289,6 +289,57 @@ class WatchdogBot:
             "🎯 <b>Motion-зони</b>\n\n" + "\n".join(lines) +
             "\n\n/motion check <cam_id> — перевірка зараз", parse_mode=ParseMode.HTML)
 
+    async def cmd_location(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """v2.3: перегляд/зміна координат для sun-profile (persist у config.yaml)."""
+        if not self._authed(update.effective_user.id):
+            return
+        import yaml
+        from modules.suntimes import sun_times_utc
+        prof = self.wd.config.night_profile or {}
+        cfg_path = getattr(self.wd.config, '_config_path', None)
+        if not ctx.args:
+            lat, lon = prof.get('lat', 50.45), prof.get('lon', 30.52)
+            mode = prof.get('mode', 'fixed')
+            sr, ss = sun_times_utc(lat, lon)
+            sr_k = (int(sr.hour * 60 + sr.minute) - 180) % 1440
+            ss_k = (int(ss.hour * 60 + ss.minute) - 180) % 1440
+            text = (f"📍 режим: {mode} | {lat}, {lon}\n"
+                    f"Схід Kyiv: {sr_k // 60:02d}:{sr_k % 60:02d} | Захід: {ss_k // 60:02d}:{ss_k % 60:02d}\n\n"
+                    "Змінити: /location <lat> <lon>")
+            if mode != 'sun':
+                text += "\n(для sun-режиму додай mode: sun в config.yaml)"
+            await update.message.reply_text(text)
+            return
+        try:
+            lat, lon = float(ctx.args[0]), float(ctx.args[1])
+        except (ValueError, IndexError):
+            await update.message.reply_text("❌ формат: /location 50.45 30.52")
+            return
+        if not (-90 < lat < 90 and -180 < lon < 180):
+            await update.message.reply_text("❌ координати поза межами")
+            return
+        # runtime
+        self.wd.config.night_profile['lat'] = lat
+        self.wd.config.night_profile['lon'] = lon
+        # persist
+        written = False
+        if cfg_path:
+            try:
+                raw = _yaml.safe_load(open(cfg_path, encoding='utf-8'))
+                np_ = raw.setdefault('night_profile', {})
+                np_['lat'], np_['lon'] = lat, lon
+                yaml.dump(raw, open(cfg_path, 'w', encoding='utf-8'),
+                          allow_unicode=True, sort_keys=False)
+                written = True
+            except Exception as e:
+                self.wd.logger.warning(f"location persist failed: {e}")
+        sr, ss = sun_times_utc(lat, lon)
+        sr_k = (int(sr.hour * 60 + sr.minute) - 180) % 1440
+        ss_k = (int(ss.hour * 60 + ss.minute) - 180) % 1440
+        await update.message.reply_text(
+            f"✅ {lat}, {lon}" + (" (persist в config.yaml)" if written else " (runtime only — впиши в config.yaml)")
+            + f"\nСхід Kyiv: {sr_k // 60:02d}:{sr_k % 60:02d} | Захід: {ss_k // 60:02d}:{ss_k % 60:02d}")
+
     # ---------- inline button handler ----------
 
     async def on_button(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE):
@@ -375,6 +426,7 @@ class WatchdogBot:
         self.app.add_handler(CommandHandler("resume", self.cmd_resume))
         self.app.add_handler(CommandHandler("roi", self.cmd_roi))
         self.app.add_handler(CommandHandler("motion", self.cmd_motion))
+        self.app.add_handler(CommandHandler("location", self.cmd_location))
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         await self.app.initialize()
         await self.app.start()

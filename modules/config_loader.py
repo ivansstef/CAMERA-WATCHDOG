@@ -145,6 +145,7 @@ def load_config(config_path: str | Path | None = None) -> Config:
         raw_config = yaml.safe_load(f)
 
     config = Config()
+    config._config_path = str(config_path)
     base_dir = config_path.parent
 
     # v2: відносні шляхи резолвимо від теки конфіга
