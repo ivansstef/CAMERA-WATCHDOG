@@ -36,6 +36,8 @@ class WatchdogBot:
         self.tg = self.config.telegram
         self.app: Application | None = None
         self.muted_until: float = 0
+        # /mute реально глуши алери (баг: notifier не читав muted_until — фікс 2.4.5)
+        self.wd.notifier.mute_provider = lambda: self.muted_until
 
     # ---------- auth ----------
 

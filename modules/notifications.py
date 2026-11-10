@@ -6,6 +6,7 @@ v2.4.5: всі часові мітки — в КИЇВСЬКІЙ зоні (confi
 """
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -36,6 +37,9 @@ class AlertState:
 
 
 class TelegramNotifier:
+    #: callable -> epoch seconds; підключається ботом (/mute). None/0 = не заглушено.
+    mute_provider: Callable[[], float] | None = None
+
     def __init__(self, config: TelegramConfig, alert_store=None):
         """
         alert_store: modules.state.StateStore (optional) — persist cooldowns across restarts.
@@ -89,6 +93,14 @@ class TelegramNotifier:
 
         key = self._get_state_key(camera_id, issue_type)
         state = self.alert_states.get(key)
+
+        # mute (бот /mute <хв>) — реально гасить УСІ алерти до muted_until (баг 2.4.4)
+        if self.mute_provider is not None:
+            try:
+                if float(self.mute_provider()) > time.time():
+                    return False
+            except Exception as e:
+                logger.debug(f"mute_provider failed: {e}")
 
         if state is None:
             return True
